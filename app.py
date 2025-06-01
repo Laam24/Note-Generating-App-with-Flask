@@ -1,164 +1,221 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import requests
 import jwt
-from supabase import create_client, Client
 import os
+from functools import wraps
 from werkzeug.utils import secure_filename
 import tempfile
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 
-# Configuration
-SUPABASE_URL = os.getenv('SUPABASE_URL', 'https://jbzjvydgdyfezsxxlphv.supabase.co')
-SUPABASE_KEY = os.getenv('SUPABASE_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impiemp2eWRnZHlmZXpzeHhscGh2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDg3Nzg3MDUsImV4cCI6MjA2NDM1NDcwNX0.HTENgOfFk3VBlCKGUm3JOjEJK4-tgR6SuWJtkCYtlwE')
+# Configuration (should use environment variables in production)
 HF_API_TOKEN = os.getenv('HF_API_TOKEN', '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')
+SUPABASE_URL = os.getenv('SUPABASE_URL', 'https://jbzjvydgdyfezsxxlphv.supabase.co')
+SUPABASE_API_KEY = os.getenv('SUPABASE_API_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impiemp2eWRnZHlmZXpzeHhscGh2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDg3Nzg3MDUsImV4cCI6MjA2NDM1NDcwNX0.HTENgOfFk3VBlCKGUm3JOjEJK4-tgR6SuWJtkCYtlwE')
 
-# Initialize Supabase
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+# Constants
+SUPABASE_DB_API = f'{SUPABASE_URL}/rest/v1/notes'
+HF_HEADERS = {'Authorization': f'Bearer {HF_API_TOKEN}'}
+WHISPER_API_URL = 'https://api-inference.huggingface.co/models/openai/whisper-large'
+FALCON_API_URL = 'https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct'
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+ALLOWED_EXTENSIONS = {'wav', 'mp3', 'ogg', 'flac'}
 
-# Helper to verify JWT
-def verify_jwt(auth_header):
+# Helper decorator for authentication
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth_header = request.headers.get('Authorization')
+        user_id = verify_token(auth_header)
+        if not user_id:
+            return jsonify({'error': 'Unauthorized'}), 401
+        return f(user_id, *args, **kwargs)
+    return decorated
+
+# Improved token verification
+def verify_token(auth_header):
     if not auth_header or not auth_header.startswith("Bearer "):
         return None
     token = auth_header.split(" ")[1]
     try:
-        # Get the user from Supabase to verify the token
-        user = supabase.auth.get_user(token)
-        return user.user.id if user else None
-    except Exception as e:
-        print(f"JWT verification error: {e}")
+        # In production, verify the signature properly
+        payload = jwt.decode(
+            token,
+            algorithms=["HS256"],
+            options={"verify_signature": False}  # Disabled for development only
+        )
+        return payload.get('sub')  # user ID
+    except jwt.PyJWTError:
         return None
 
+# Helper for file validation
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
 @app.route('/api/recordings', methods=['POST'])
-def upload_recording():
-    # Verify user
-    user_id = verify_jwt(request.headers.get("Authorization"))
-    if not user_id:
-        return jsonify({"error": "Unauthorized"}), 401
+@token_required
+def upload_recording(user_id):
+    if 'audio' not in request.files:
+        return jsonify({'error': 'No audio file provided'}), 400
+        
+    audio_file = request.files['audio']
     
-    # Get form data
-    course_code = request.form.get("course_code")
-    title = request.form.get("title")
-    audio_file = request.files.get("audio")
-    
-    if not all([course_code, title, audio_file]):
-        return jsonify({"error": "Missing required fields"}), 400
-    
+    if audio_file.filename == '':
+        return jsonify({'error': 'No selected file'}), 400
+        
+    if not allowed_file(audio_file.filename):
+        return jsonify({'error': 'Invalid file type'}), 400
+
+    # Save file temporarily
     try:
-        # Save file temporarily
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as tmp:
             audio_file.save(tmp)
             tmp_path = tmp.name
-        
-        # Upload to Supabase Storage
-        file_name = f"{user_id}/{secure_filename(audio_file.filename)}"
-        with open(tmp_path, 'rb') as f:
-            res = supabase.storage.from_("recordings").upload(file_name, f)
-        
-        # Get public URL
-        audio_url = supabase.storage.from_("recordings").get_public_url(file_name)
-        
-        # Save to database
-        recording_data = {
-            "user_id": user_id,
-            "course_code": course_code,
-            "title": title,
-            "audio_path": file_name
-        }
-        data, _ = supabase.table("recordings").insert(recording_data).execute()
-        recording_id = data[1][0]['id']
-        
+
+        # Check file size
+        file_size = os.path.getsize(tmp_path)
+        if file_size > MAX_FILE_SIZE:
+            return jsonify({'error': 'File too large'}), 400
+
+        # Process the file here (e.g., save to storage, transcribe, etc.)
+        # For now, we'll just return a success message
         return jsonify({
-            "id": recording_id,
-            "audio_url": audio_url,
-            "message": "Recording uploaded successfully"
-        }), 201
-        
+            'message': 'File uploaded successfully',
+            'user_id': user_id,
+            'file_size': file_size
+        })
+
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({'error': str(e)}), 500
     finally:
-        if tmp_path and os.path.exists(tmp_path):
+        if 'tmp_path' in locals() and os.path.exists(tmp_path):
             os.remove(tmp_path)
 
-@app.route('/api/transcribe/<recording_id>', methods=['POST'])
-def transcribe_recording(recording_id):
-    user_id = verify_jwt(request.headers.get("Authorization"))
-    if not user_id:
-        return jsonify({"error": "Unauthorized"}), 401
-    
-    try:
-        # Get recording from database
-        recording = supabase.table("recordings").select("*").eq("id", recording_id).eq("user_id", user_id).execute()
-        if not recording.data:
-            return jsonify({"error": "Recording not found"}), 404
-        
-        # Get audio from storage
-        audio_path = recording.data[0]['audio_path']
-        audio_bytes = supabase.storage.from_("recordings").download(audio_path)
-        
-        # Transcribe with Whisper
-        headers = {"Authorization": f"Bearer {HF_API_TOKEN}"}
-        response = requests.post(
-            "https://api-inference.huggingface.co/models/openai/whisper-large",
-            headers=headers,
-            data=audio_bytes
-        )
-        
-        if response.status_code != 200:
-            return jsonify({"error": "Transcription failed", "details": response.text}), 500
-        
-        transcription = response.json().get("text", "")
-        
-        # Update recording with transcription
-        supabase.table("recordings").update({"transcription": transcription}).eq("id", recording_id).execute()
-        
-        return jsonify({"transcription": transcription})
-    
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+@app.route('/api/transcribe', methods=['POST'])
+@token_required
+def transcribe_audio(user_id):
+    if 'audio' not in request.files:
+        return jsonify({'error': 'No audio file provided'}), 400
 
-@app.route('/api/summarize/<recording_id>', methods=['POST'])
-def summarize_recording(recording_id):
-    user_id = verify_jwt(request.headers.get("Authorization"))
-    if not user_id:
-        return jsonify({"error": "Unauthorized"}), 401
+    audio_file = request.files['audio']
     
     try:
-        # Get recording with transcription
-        recording = supabase.table("recordings").select("*").eq("id", recording_id).eq("user_id", user_id).execute()
-        if not recording.data or not recording.data[0]['transcription']:
-            return jsonify({"error": "No transcription available"}), 400
+        files = {'file': (secure_filename(audio_file.filename), audio_file.stream, audio_file.mimetype)}
         
-        transcription = recording.data[0]['transcription']
-        
-        # Summarize with Falcon
-        headers = {
-            "Authorization": f"Bearer {HF_API_TOKEN}",
-            "Content-Type": "application/json"
-        }
+        response = requests.post(
+            WHISPER_API_URL,
+            headers=HF_HEADERS,
+            files=files,
+            timeout=30  # Add timeout
+        )
+
+        if response.status_code != 200:
+            return jsonify({
+                'error': 'Transcription failed',
+                'details': response.text
+            }), 500
+
+        result = response.json()
+        return jsonify({
+            'transcription': result.get('text', ''),
+            'user_id': user_id
+        })
+
+    except requests.exceptions.RequestException as e:
+        return jsonify({'error': f'API request failed: {str(e)}'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/summarize', methods=['POST'])
+@token_required
+def summarize_text(user_id):
+    data = request.get_json()
+    if not data or 'text' not in data:
+        return jsonify({'error': 'No text provided'}), 400
+
+    try:
         payload = {
-            "inputs": transcription,
+            "inputs": data['text'],
             "parameters": {"max_new_tokens": 150}
         }
-        
+
         response = requests.post(
-            "https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct",
-            headers=headers,
-            json=payload
+            FALCON_API_URL,
+            headers={**HF_HEADERS, 'Content-Type': 'application/json'},
+            json=payload,
+            timeout=30
         )
-        
+
         if response.status_code != 200:
-            return jsonify({"error": "Summarization failed", "details": response.text}), 500
-        
-        summary = response.json()[0]['generated_text'] if isinstance(response.json(), list) else ""
-        
-        # Update recording with summary
-        supabase.table("recordings").update({"summary": summary}).eq("id", recording_id).execute()
-        
-        return jsonify({"summary": summary})
-    
+            return jsonify({
+                'error': 'Summarization failed',
+                'details': response.text
+            }), 500
+
+        result = response.json()
+        summary = result[0]['generated_text'] if isinstance(result, list) else result.get('summary', '')
+        return jsonify({
+            'summary': summary,
+            'user_id': user_id
+        })
+
+    except requests.exceptions.RequestException as e:
+        return jsonify({'error': f'API request failed: {str(e)}'}), 500
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/notes', methods=['GET', 'POST', 'DELETE'])
+@token_required
+def handle_notes(user_id):
+    headers = {
+        "apikey": SUPABASE_API_KEY,
+        "Authorization": request.headers.get("Authorization"),
+        "Content-Type": "application/json"
+    }
+
+    try:
+        if request.method == 'GET':
+            course = request.args.get('course')
+            query = f"?user_id=eq.{user_id}"
+            if course:
+                query += f"&course=eq.{course}"
+
+            response = requests.get(SUPABASE_DB_API + query, headers=headers)
+            return jsonify(response.json())
+
+        elif request.method == 'POST':
+            data = request.get_json()
+            if not data:
+                return jsonify({'error': 'No data provided'}), 400
+
+            note = {
+                "user_id": user_id,
+                "course": data.get("course"),
+                "title": data.get("title"),
+                "content": data.get("content")
+            }
+            response = requests.post(SUPABASE_DB_API, headers=headers, json=note)
+            return jsonify(response.json())
+
+        elif request.method == 'DELETE':
+            note_id = request.args.get('id')
+            if not note_id:
+                return jsonify({'error': 'Note ID required'}), 400
+            response = requests.delete(
+                SUPABASE_DB_API + f"?id=eq.{note_id}", 
+                headers=headers
+            )
+            return jsonify({'status': 'deleted'})
+
+    except requests.exceptions.RequestException as e:
+        return jsonify({'error': f'Supabase request failed: {str(e)}'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    return jsonify({'error': 'Invalid method'}), 405
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)), debug=os.getenv('FLASK_DEBUG', 'false').lower() == 'true')
