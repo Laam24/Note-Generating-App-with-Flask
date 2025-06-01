@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 # Configuration (should use environment variables in production)
 SUPABASE_URL = os.getenv('SUPABASE_URL', 'https://jbzjvydgdyfezsxxlphv.supabase.co')
 SUPABASE_KEY = os.getenv('SUPABASE_KEY')  # No default value for security
+HF_API_TOKEN = os.getenv('HF_API_TOKEN', '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')
 
 # Initialize Supabase client
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
