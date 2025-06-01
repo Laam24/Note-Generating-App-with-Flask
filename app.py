@@ -95,7 +95,7 @@ def notes():
 
     headers = {
         "apikey": SUPABASE_API_KEY,
-        "Authorization": f"Bearer {SUPABASE_API_KEY}",
+        "Authorization": request.headers.get("Authorization"),
         "Content-Type": "application/json"
     }
 
