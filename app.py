@@ -18,10 +18,10 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 SUPABASE_URL = os.getenv('SUPABASE_URL', 'https://jbzjvydgdyfezsxxlphv.supabase.co')
-SUPABASE_KEY = os.getenv('SUPABASE_KEY')  # Must be set to the service key in Render environment variables
+SUPABASE_KEY = os.getenv('SUPABASE_KEY')  # Must be the service key
 HF_API_TOKEN = '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'  # Placeholder; update with your actual token
 
-# Initialize Supabase client
+# Initialize Supabase client with service key
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Constants
@@ -116,9 +116,9 @@ def upload_recording(user_id):
                 logger.error(f"Storage upload failed: {res.error}")
                 return jsonify({'error': f"Storage upload failed: {res.error}"}), 500
 
-        # Create database record
+        # Create database record with user_id to match RLS
         recording_data = {
-            "user_id": user_id,
+            "user_id": user_id,  # Ensure this matches the authenticated user
             "course_code": course_code,
             "title": title,
             "audio_path": file_name,
@@ -145,7 +145,7 @@ def upload_recording(user_id):
 
     except Exception as e:
         logger.error(f"Upload error: {str(e)}")
-        return jsonify({'error': f"Upload failed: {str(e)}"}), 500
+        return jsonify({'error': f"Upload failed: {str(e)}", 'statuscode': 400}), 400
     finally:
         if 'tmp_path' in locals() and os.path.exists(tmp_path):
             os.remove(tmp_path)
