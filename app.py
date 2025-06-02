@@ -29,9 +29,10 @@ import os
 
 # Initialize Supabase client with custom HTTP client
 # Initialize Supabase client
-supabase: Client = create_client(
-    os.getenv('SUPABASE_URL', 'https://jbzjvydgdyfezsxxlphv.supabase.co'),
-    os.getenv('SUPABASE_KEY', 'your-anon-key')
+# Initialize Supabase client
+url: str = os.environ.get("SUPABASE_URL")
+key: str = os.environ.get("SUPABASE_KEY")
+supabase: Client = create_client(url, key)
 )
 
 # Constants
