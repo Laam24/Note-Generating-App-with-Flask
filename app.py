@@ -34,6 +34,11 @@ url: str = os.environ.get("SUPABASE_URL")
 key: str = os.environ.get("SUPABASE_KEY")
 supabase: Client = create_client(url, key)
 
+# In your Flask app
+supabase.auth.sign_in_with_password({
+  "email": "user@example.com",
+  "password": "password"
+})
 
 # Constants
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
