@@ -25,7 +25,19 @@ SUPABASE_URL = 'https://jbzjvydgdyfezsxxlphv.supabase.co'
 SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impiemp2eWRnZHlmZXpzeHhscGh2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDg3Nzg3MDUsImV4cCI6MjA2NDM1NDcwNX0.HTENgOfFk3VBlCKGUm3JOjEJK4-tgR6SuWJtkCYtlwE'
 
 # Initialize Supabase client
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+from supabase import create_client, Client
+import os
+
+# Initialize Supabase client with custom HTTP client
+supabase: Client = create_client(
+    os.getenv('SUPABASE_URL'),
+    os.getenv('SUPABASE_KEY'),
+    options={
+        'auto_refresh_token': True,
+        'persist_session': True,
+        'storage': {'host': 'jbzjvydgdyfezsxxlphv.supabase.co'}
+    }
+)
 
 # Constants
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
