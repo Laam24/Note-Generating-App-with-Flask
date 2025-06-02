@@ -32,17 +32,22 @@ supabase_url = os.environ.get("SUPABASE_URL")
 supabase_key = os.environ.get("SUPABASE_KEY")
 supabase = create_client(supabase_url, supabase_key)
 
-# For email/password auth, use this:
-email = os.environ.get("SUPABASE_EMAIL")
-password = os.environ.get("SUPABASE_PASSWORD")
-if email and password:
-    try:
-        supabase.auth.sign_in_with_password({
-            "email": email,
-            "password": password
-        })
-    except Exception as e:
-        print(f"Authentication error: {e}")
+
+# Authenticate user first
+user = supabase.auth.sign_in_with_password({
+    "email": "user@example.com",
+    "password": "password"
+})
+
+# Then perform your upload
+try:
+    response = supabase.table("lectures").insert({
+        "course_code": course_code,
+        "lecture_title": lecture_title,
+        "audio_file": file_name
+    }).execute()
+except Exception as e:
+    print(f"Upload error: {e}")
       
 # Constants
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
