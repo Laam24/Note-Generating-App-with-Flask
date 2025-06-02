@@ -21,22 +21,17 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 HF_API_TOKEN = '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'
-SUPABASE_URL = 'https://jbzjvydgdyfezsxxlphv.supabase.co'
-SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impiemp2eWRnZHlmZXpzeHhscGh2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDg3Nzg3MDUsImV4cCI6MjA2NDM1NDcwNX0.HTENgOfFk3VBlCKGUm3JOjEJK4-tgR6SuWJtkCYtlwE'
-
+SUPABASE_URL = os.getenv('SUPABASE_URL', 'https://jbzjvydgdyfezsxxlphv.supabase.co')
+SUPABASE_KEY = os.getenv('SUPABASE_KEY', 'your-anon-key')
 # Initialize Supabase client
 from supabase import create_client, Client
 import os
 
 # Initialize Supabase client with custom HTTP client
+# Initialize Supabase client
 supabase: Client = create_client(
-    os.getenv('SUPABASE_URL'),
-    os.getenv('SUPABASE_KEY'),
-    options={
-        'auto_refresh_token': True,
-        'persist_session': True,
-        'storage': {'host': 'jbzjvydgdyfezsxxlphv.supabase.co'}
-    }
+    os.getenv('SUPABASE_URL', 'https://jbzjvydgdyfezsxxlphv.supabase.co'),
+    os.getenv('SUPABASE_KEY', 'your-anon-key')
 )
 
 # Constants
