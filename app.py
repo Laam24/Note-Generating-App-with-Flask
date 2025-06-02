@@ -112,10 +112,11 @@ def upload_recording(user_id):
 
         # Upload to Supabase Storage with correct content type
         with open(tmp_path, 'rb') as f:
+            # Updated upload method with correct parameter name
             res = supabase.storage.from_("recordings").upload(
                 file_name, 
                 f,
-                options={"content-type": content_type}
+                file_options={"content-type": content_type}  # Changed from 'options' to 'file_options'
             )
             if hasattr(res, 'error') and res.error:
                 raise Exception(f"Storage upload failed: {res.error}")
