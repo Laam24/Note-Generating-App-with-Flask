@@ -1,14 +1,11 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import requests
-import jwt
 import os
-from functools import wraps
-from werkzeug.utils import secure_filename
-import tempfile
 from datetime import datetime
 from supabase import create_client, Client
 import logging
+from werkzeug.utils import secure_filename
+import tempfile
 from mimetypes import guess_type
 
 # Initialize Flask app
@@ -20,35 +17,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Configuration
-HF_API_TOKEN = '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'
 SUPABASE_URL = os.getenv('SUPABASE_URL', 'https://jbzjvydgdyfezsxxlphv.supabase.co')
-SUPABASE_KEY = os.getenv('SUPABASE_KEY', 'your-anon-key')
-# Initialize Supabase client
-from supabase import create_client, Client
-import os
+SUPABASE_KEY = os.getenv('SUPABASE_KEY')  # Must be set to the service key in Render environment variables
+HF_API_TOKEN = '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'  # Placeholder; update with your actual token
 
 # Initialize Supabase client
-supabase_url = os.environ.get("SUPABASE_URL")
-supabase_key = os.environ.get("SUPABASE_KEY")
-supabase = create_client(supabase_url, supabase_key)
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-
-# Authenticate user first
-user = supabase.auth.sign_in_with_password({
-    "email": "user@example.com",
-    "password": "password"
-})
-
-# Then perform your upload
-try:
-    response = supabase.table("lectures").insert({
-        "course_code": course_code,
-        "lecture_title": lecture_title,
-        "audio_file": file_name
-    }).execute()
-except Exception as e:
-    print(f"Upload error: {e}")
-      
 # Constants
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 ALLOWED_EXTENSIONS = {
@@ -72,6 +47,7 @@ def get_mime_type(filename):
 
 # Authentication decorator
 def token_required(f):
+    from functools import wraps
     @wraps(f)
     def decorated(*args, **kwargs):
         auth_header = request.headers.get('Authorization')
@@ -83,14 +59,11 @@ def token_required(f):
             user = supabase.auth.get_user(token)
             if not user.user:
                 return jsonify({'error': 'Invalid token'}), 401
-                
             kwargs['user_id'] = user.user.id
             return f(*args, **kwargs)
-            
         except Exception as e:
             logger.error(f"Authentication error: {str(e)}")
             return jsonify({'error': 'Invalid token'}), 401
-            
     return decorated
 
 @app.route('/api/recordings', methods=['POST'])
@@ -134,14 +107,14 @@ def upload_recording(user_id):
 
         # Upload to Supabase Storage with correct content type
         with open(tmp_path, 'rb') as f:
-            # Updated upload method with correct parameter name
             res = supabase.storage.from_("recordings").upload(
                 file_name, 
                 f,
-                file_options={"content-type": content_type}  # Changed from 'options' to 'file_options'
+                file_options={"content-type": content_type}
             )
             if hasattr(res, 'error') and res.error:
-                raise Exception(f"Storage upload failed: {res.error}")
+                logger.error(f"Storage upload failed: {res.error}")
+                return jsonify({'error': f"Storage upload failed: {res.error}"}), 500
 
         # Create database record
         recording_data = {
@@ -156,6 +129,9 @@ def upload_recording(user_id):
         }
         
         data, count = supabase.table("recordings").insert(recording_data).execute()
+        if count is None:
+            logger.error("Failed to insert recording into database")
+            return jsonify({'error': 'Failed to insert recording into database'}), 500
         
         return jsonify({
             'status': 'success',
@@ -169,7 +145,7 @@ def upload_recording(user_id):
 
     except Exception as e:
         logger.error(f"Upload error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': f"Upload failed: {str(e)}"}), 500
     finally:
         if 'tmp_path' in locals() and os.path.exists(tmp_path):
             os.remove(tmp_path)
