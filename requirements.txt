@@ -2,7 +2,7 @@ Flask==3.0.0
 requests==2.31.0
 PyJWT==2.8.0
 gunicorn==21.2.0
-supabase==2.3.1
+supabase==2.1.1  # Downgrade supabase
 flask-cors==4.0.0
 python-dotenv==1.0.0
-httpx>=0.24.0,<0.26.0  # Matches supabase 2.3.1's requirements
+httpx==0.24.0  # Exact version that works with supabase 2.1.1
