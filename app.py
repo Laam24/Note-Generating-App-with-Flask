@@ -33,7 +33,7 @@ import os
 url: str = os.environ.get("SUPABASE_URL")
 key: str = os.environ.get("SUPABASE_KEY")
 supabase: Client = create_client(url, key)
-)
+
 
 # Constants
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
