@@ -3,7 +3,7 @@ import tempfile
 import whisper
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from supabase_py import create_client, SupabaseClient
+from supabase import create_client, SupabaseClient
 from transformers import pipeline
 import torch
 
