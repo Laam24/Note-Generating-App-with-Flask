@@ -3,7 +3,7 @@ import tempfile
 import whisper
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from supabase import create_client, Client
+from supabase_py import create_client, SupabaseClient
 from transformers import pipeline
 import torch
 
@@ -17,7 +17,7 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 # Initialize Supabase client
 try:
-    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    supabase: SupabaseClient = create_client(SUPABASE_URL, SUPABASE_KEY)
     app.logger.info("Supabase client initialized successfully")
 except Exception as e:
     app.logger.error(f"Error initializing Supabase client: {e}")
