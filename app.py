@@ -7,6 +7,9 @@ import logging
 from werkzeug.utils import secure_filename
 import tempfile
 from mimetypes import guess_type
+import whisper
+from transformers import pipeline
+import torch
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -19,10 +22,24 @@ logger = logging.getLogger(__name__)
 # Configuration
 SUPABASE_URL = os.getenv('SUPABASE_URL', 'https://jbzjvydgdyfezsxxlphv.supabase.co')
 SUPABASE_KEY = os.getenv('SUPABASE_KEY')  # Must be the service key
-HF_API_TOKEN = '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'  # Placeholder; update with your actual token
 
 # Initialize Supabase client with service key
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# Initialize AI models
+logger.info("Loading AI models...")
+# Load Whisper model for transcription (choose size based on your server capacity)
+# Options: tiny, base, small, medium, large
+whisper_model = whisper.load_model("base")  # Good balance of speed and accuracy
+
+# Load summarization model
+summarizer = pipeline(
+    "summarization",
+    model="facebook/bart-large-cnn",  # Free, high-quality summarization
+    torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+    device=0 if torch.cuda.is_available() else -1
+)
+logger.info("AI models loaded successfully!")
 
 # Constants
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
@@ -33,7 +50,7 @@ ALLOWED_EXTENSIONS = {
     'aac': 'audio/aac',
     'ogg': 'audio/ogg',
     'flac': 'audio/flac',
-    'mp4': 'video/mp4'  # For video files with audio
+    'mp4': 'video/mp4'
 }
 
 # Helper functions
@@ -116,16 +133,44 @@ def upload_recording(user_id):
                 logger.error(f"Storage upload failed: {res.error}")
                 return jsonify({'error': f"Storage upload failed: {res.error}"}), 500
 
+        # Transcribe audio using Whisper
+        logger.info("Starting transcription...")
+        result = whisper_model.transcribe(tmp_path)
+        transcription = result["text"]
+        logger.info("Transcription completed")
+
+        # Summarize transcription
+        logger.info("Starting summarization...")
+        summary = ""
+        if transcription.strip():
+            # Split long text into chunks if needed (BART has token limits)
+            max_chunk_length = 1000  # characters
+            if len(transcription) > max_chunk_length:
+                chunks = [transcription[i:i+max_chunk_length] 
+                         for i in range(0, len(transcription), max_chunk_length)]
+                summaries = []
+                for chunk in chunks:
+                    if len(chunk.strip()) > 50:  # Only summarize meaningful chunks
+                        chunk_summary = summarizer(chunk, max_length=150, min_length=50, do_sample=False)[0]['summary_text']
+                        summaries.append(chunk_summary)
+                summary = " ".join(summaries)
+            else:
+                if len(transcription.strip()) > 50:
+                    summary = summarizer(transcription, max_length=150, min_length=50, do_sample=False)[0]['summary_text']
+        logger.info("Summarization completed")
+
         # Create database record with user_id to match RLS
         recording_data = {
-            "user_id": user_id,  # Ensure this matches the authenticated user
+            "user_id": user_id,
             "course_code": course_code,
             "title": title,
             "audio_path": file_name,
             "file_size": file_size,
             "file_type": file_ext,
             "mime_type": content_type,
-            "status": "uploaded"
+            "status": "processed",
+            "transcription": transcription,
+            "summary": summary
         }
         
         data, count = supabase.table("recordings").insert(recording_data).execute()
@@ -140,7 +185,9 @@ def upload_recording(user_id):
             'file_size': file_size,
             'file_type': file_ext,
             'mime_type': content_type,
-            'message': 'File uploaded successfully'
+            'transcription': transcription,
+            'summary': summary,
+            'message': 'File uploaded and processed successfully'
         })
 
     except Exception as e:
@@ -149,6 +196,98 @@ def upload_recording(user_id):
     finally:
         if 'tmp_path' in locals() and os.path.exists(tmp_path):
             os.remove(tmp_path)
+
+# Separate transcription endpoint (if needed)
+@app.route('/api/transcribe', methods=['POST'])
+@token_required
+def transcribe_audio(user_id):
+    if 'audio' not in request.files:
+        return jsonify({'error': 'No audio file provided'}), 400
+        
+    audio_file = request.files['audio']
+    
+    try:
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            audio_file.save(tmp)
+            tmp_path = tmp.name
+
+        result = whisper_model.transcribe(tmp_path)
+        transcription = result["text"]
+        
+        return jsonify({
+            'status': 'success',
+            'transcription': transcription
+        })
+        
+    except Exception as e:
+        logger.error(f"Transcription error: {str(e)}")
+        return jsonify({'error': f"Transcription failed: {str(e)}"}), 500
+    finally:
+        if 'tmp_path' in locals() and os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+# Separate summarization endpoint
+@app.route('/api/summarize', methods=['POST'])
+@token_required
+def summarize_text(user_id):
+    data = request.get_json()
+    if not data or 'text' not in data:
+        return jsonify({'error': 'No text provided'}), 400
+    
+    text = data['text'].strip()
+    if not text:
+        return jsonify({'error': 'Empty text provided'}), 400
+    
+    try:
+        # Handle long text by chunking
+        max_chunk_length = 1000
+        if len(text) > max_chunk_length:
+            chunks = [text[i:i+max_chunk_length] 
+                     for i in range(0, len(text), max_chunk_length)]
+            summaries = []
+            for chunk in chunks:
+                if len(chunk.strip()) > 50:
+                    chunk_summary = summarizer(chunk, max_length=150, min_length=50, do_sample=False)[0]['summary_text']
+                    summaries.append(chunk_summary)
+            summary = " ".join(summaries)
+        else:
+            if len(text) > 50:
+                summary = summarizer(text, max_length=150, min_length=50, do_sample=False)[0]['summary_text']
+            else:
+                summary = text  # Return original if too short to summarize
+        
+        return jsonify({
+            'status': 'success',
+            'summary': summary
+        })
+        
+    except Exception as e:
+        logger.error(f"Summarization error: {str(e)}")
+        return jsonify({'error': f"Summarization failed: {str(e)}"}), 500
+
+# Get recordings/notes endpoint
+@app.route('/api/recordings', methods=['GET'])
+@token_required
+def get_recordings(user_id):
+    try:
+        data, count = supabase.table("recordings").select("*").eq("user_id", user_id).order("created_at", desc=True).execute()
+        
+        recordings = []
+        for record in data[1]:
+            recordings.append({
+                'id': record['id'],
+                'course': record['course_code'],
+                'title': record['title'],
+                'content': f"Transcription:\n{record.get('transcription', '')}\n\nSummary:\n{record.get('summary', '')}",
+                'created_at': record['created_at'],
+                'status': record['status']
+            })
+        
+        return jsonify(recordings)
+        
+    except Exception as e:
+        logger.error(f"Get recordings error: {str(e)}")
+        return jsonify({'error': f"Failed to fetch recordings: {str(e)}"}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)), 
