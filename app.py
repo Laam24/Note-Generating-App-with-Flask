@@ -23,22 +23,13 @@ logger = logging.getLogger(__name__)
 SUPABASE_URL = os.getenv('SUPABASE_URL', 'https://jbzjvydgdyfezsxxlphv.supabase.co')
 SUPABASE_KEY = os.getenv('SUPABASE_KEY')  # Must be the service key
 
-# Initialize Supabase client with service key
-# Replace this line in app.py (around line 27):
-# supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-# With this:
+# Initialize Supabase client - FIXED VERSION
 try:
-    supabase: Client = create_client(
-        supabase_url=SUPABASE_URL,
-        supabase_key=SUPABASE_KEY,
-        options={
-            'auto_refresh_token': False,
-            'persist_session': False
-        }
-    )
+    # Simple initialization without custom options (recommended fix)
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    logger.info("Supabase client initialized successfully")
 except Exception as e:
-    print(f"Error initializing Supabase client: {e}")
+    logger.error(f"Error initializing Supabase client: {e}")
     raise
 
 # Initialize AI models
@@ -304,6 +295,26 @@ def get_recordings(user_id):
         logger.error(f"Get recordings error: {str(e)}")
         return jsonify({'error': f"Failed to fetch recordings: {str(e)}"}), 500
 
+# Health check endpoint
+@app.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()})
+
+# Root endpoint
+@app.route('/', methods=['GET'])
+def root():
+    return jsonify({
+        'message': 'Note Generating App API',
+        'version': '1.0.0',
+        'endpoints': [
+            '/health',
+            '/api/recordings (GET, POST)',
+            '/api/transcribe',
+            '/api/summarize'
+        ]
+    })
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)), 
-            debug=os.getenv('FLASK_DEBUG', 'false').lower() == 'true')
+    # Ensure we bind to the correct port for Render
+    port = int(os.getenv('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
