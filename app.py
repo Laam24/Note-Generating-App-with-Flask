@@ -24,7 +24,22 @@ SUPABASE_URL = os.getenv('SUPABASE_URL', 'https://jbzjvydgdyfezsxxlphv.supabase.
 SUPABASE_KEY = os.getenv('SUPABASE_KEY')  # Must be the service key
 
 # Initialize Supabase client with service key
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+# Replace this line in app.py (around line 27):
+# supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# With this:
+try:
+    supabase: Client = create_client(
+        supabase_url=SUPABASE_URL,
+        supabase_key=SUPABASE_KEY,
+        options={
+            'auto_refresh_token': False,
+            'persist_session': False
+        }
+    )
+except Exception as e:
+    print(f"Error initializing Supabase client: {e}")
+    raise
 
 # Initialize AI models
 logger.info("Loading AI models...")
